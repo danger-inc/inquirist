@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=inquirist
+GenericName=Starter
+Comment=Programme, Fenster, Dateien, Rechner, Zwischenablage, Zeichen, Web und System – alles in einer Eingabe
+Exec=@EXEC@
+Icon=inquirist
+Terminal=false
+Categories=Utility;
+Keywords=starter;launcher;suche;fenster;rechner;emoji;
+StartupWMClass=de.invincible.Inquirist
