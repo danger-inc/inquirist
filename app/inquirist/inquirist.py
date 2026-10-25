@@ -219,6 +219,11 @@ class Inquirist(Gtk.Application):
         keys = Gtk.EventControllerKey(propagation_phase=Gtk.PropagationPhase.CAPTURE)
         keys.connect("key-pressed", self._key)
         win.add_controller(keys)
+        # Maus erst nach echter Bewegung wirksam (ruhender Zeiger unter der Liste darf nichts markieren/auslösen)
+        self._mouse_ref = None
+        mot = Gtk.EventControllerMotion(propagation_phase=Gtk.PropagationPhase.CAPTURE)
+        mot.connect("motion", self._motion)
+        win.add_controller(mot)
         self.set_mode(0, quiet=True)
 
     # ---- Zeilen
@@ -432,6 +437,18 @@ class Inquirist(Gtk.Application):
                 return m
         return None
 
+    def _motion(self, _c, x, y):
+        if self.lv.get_can_target():
+            return
+        if self._mouse_ref is None:
+            self._mouse_ref = (x, y)
+        elif abs(x - self._mouse_ref[0]) + abs(y - self._mouse_ref[1]) > 3:
+            self.lv.set_can_target(True)
+
+    def _mouse_lock(self):
+        self._mouse_ref = None
+        self.lv.set_can_target(False)
+
     def show_mode(self, name, toggle=False):
         idx = next((i for i, m in enumerate(self.modes) if m.id == name), 0 if not name else None)
         if idx is None:
@@ -441,6 +458,7 @@ class Inquirist(Gtk.Application):
             self.hide()
             return
         if not visible:
+            self._mouse_lock()
             if self.use_layer:
                 mon = self.focused_monitor()
                 if mon is not None:
