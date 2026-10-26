@@ -1,4 +1,19 @@
+<!-- gh-header -->
+<div align="center">
+
+<img src="inquirist.svg" width="88" alt="inquirist">
+
 # inquirist
+
+**launcher with modes: apps, windows, files, calculator …**
+
+<img src="https://img.shields.io/badge/GTK-4-4A86CF?style=flat-square&logo=gtk&logoColor=white" alt="GTK"> <img src="https://img.shields.io/badge/python-3.10+-3776AB?style=flat-square&logo=python&logoColor=white" alt="python"> <img src="https://img.shields.io/badge/platform-linux-2E7D6B?style=flat-square&logo=linux&logoColor=white" alt="platform"> <img src="https://img.shields.io/badge/made%20for-wayland%20·%20hyprland-7C6BC4?style=flat-square" alt="made for">
+
+</div>
+
+<p align="center"><img src="docs/inquirist.png" width="860" alt="inquirist screenshot"></p>
+
+<p align="center"><!-- gh-note --><sub>wallpaper: [Fangpeii](https://www.pixiv.net/artworks/120232182) · via [wallhaven](https://wallhaven.cc/w/rr1kow)</sub></p>
 
 the launcher of the -ist suite (gtk4): one input for programs, windows, files, calculator, clipboard history,
 emoji/symbols, web search and system actions. it waits invisibly in the background and is there the moment you
@@ -50,3 +65,22 @@ tab / shift+tab (or ctrl+1…8) switch the mode, ↑↓ / ctrl+p/n move, enter r
 cd ~/inquirist-src && ./update.sh
 ./uninstall.sh
 ```
+
+<!-- gh-suite -->
+## the -ist suite
+
+all apps share one look (terminal style, colors from your wallpaper via matugen), one installer and the same shortcuts.
+
+| app | what it does |
+| --- | --- |
+| [scourge](https://github.com/danger-inc/scourge-public) | inspect, edit, record, cut – and installs the others |
+| [notist](https://github.com/danger-inc/notist-public) | notes · words · latex |
+| [filist](https://github.com/danger-inc/filist-public) | file explorer + file dialog |
+| [datist](https://github.com/danger-inc/datist) | calendar |
+| [mailist](https://github.com/danger-inc/mailist-public) | mail |
+| [musicalist](https://github.com/danger-inc/musicalist-public) | youtube music |
+| [linguist](https://github.com/danger-inc/linguist) | translator + hover corner |
+| [sharist](https://github.com/danger-inc/sharist) | quick share |
+| [wallist](https://github.com/danger-inc/wallist) | wallpapers |
+
+dotfiles with the matching hyprland setup: [danger-inc/dotfiles](https://github.com/danger-inc/dotfiles)
