@@ -37,8 +37,8 @@ SUP = "¹²³⁴⁵⁶⁷⁸⁹"
 LINES = 9
 
 CSS = """
-window.iq-win, window.iq-backdrop { background: none; background-color: transparent; box-shadow: none; }
-window.iq-backdrop { background-color: rgba(0, 0, 0, 0.01); }
+window.iq-win { background: none; background-color: transparent; box-shadow: none; }
+window.iq-win { background-color: rgba(0, 0, 0, 0.04); }
 window.iq-win * { font-family: "JetBrainsMono Nerd Font", "Notes Icons", monospace; font-weight: bold; font-size: 11pt; }
 .iq-panel { background-color: alpha(@background, 0.85); border: 1px solid alpha(@primary, 0.55); border-radius: 6px; }
 .iq-head { padding: 10px 14px 6px 14px; }
@@ -122,31 +122,24 @@ class Inquirist(Gtk.Application):
     # ================= Aufbau =================
     def build(self):
         self.use_layer = bool(Layer and PRELOADED and Layer.is_supported())
-        win = self.win = Gtk.Window(application=self, title="inquirist", resizable=False)
+        win = self.win = Gtk.Window(application=self, title="inquirist", resizable=bool(self.use_layer))
         win.add_css_class("iq-win")
-        win.set_default_size(820, -1)
+        if not self.use_layer:
+            win.set_default_size(820, -1)
         win.set_hide_on_close(True)
         self.backdrop = None
         if self.use_layer:
             Layer.init_for_window(win)
             Layer.set_namespace(win, "inquirist")
             Layer.set_layer(win, Layer.Layer.OVERLAY)
-            Layer.set_anchor(win, Layer.Edge.TOP, True)
-            Layer.set_margin(win, Layer.Edge.TOP, TOP_MARGIN)
-            Layer.set_keyboard_mode(win, Layer.KeyboardMode.EXCLUSIVE)
-            bd = self.backdrop = Gtk.Window(application=self, title="inquirist-backdrop")
-            bd.add_css_class("iq-backdrop")
-            Layer.init_for_window(bd)
-            Layer.set_namespace(bd, "inquirist-backdrop")
-            Layer.set_layer(bd, Layer.Layer.TOP)
             for edge in (Layer.Edge.TOP, Layer.Edge.BOTTOM, Layer.Edge.LEFT, Layer.Edge.RIGHT):
-                Layer.set_anchor(bd, edge, True)
-            Layer.set_exclusive_zone(bd, 0)                   # Waybar bleibt frei
-            Layer.set_keyboard_mode(bd, Layer.KeyboardMode.NONE)
-            click = Gtk.GestureClick()
-            click.connect("pressed", lambda *_: self.hide())
-            bd.add_controller(click)
-            bd.set_child(Gtk.Box())
+                Layer.set_anchor(win, edge, True)             # ganze Fläche: Klick daneben schließt
+            Layer.set_exclusive_zone(win, 0)                  # Waybar bleibt frei
+            Layer.set_keyboard_mode(win, Layer.KeyboardMode.EXCLUSIVE)
+            click = Gtk.GestureClick(button=0)
+            click.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
+            click.connect("pressed", self._outside_click)
+            win.add_controller(click)
         else:
             win.set_decorated(False)
             win.connect("notify::is-active", lambda w, _p: None if w.is_active() or not w.get_visible() else self.hide())
@@ -214,6 +207,12 @@ class Inquirist(Gtk.Application):
         panel.add_css_class("iq-panel")
         for w in (head, inp, self.msg, ov, self.foot):
             panel.append(w)
+        self.panel = panel
+        if self.use_layer:
+            panel.set_size_request(820, -1)
+            panel.set_halign(Gtk.Align.CENTER)
+            panel.set_valign(Gtk.Align.START)
+            panel.set_margin_top(TOP_MARGIN)
         win.set_child(panel)
 
         keys = Gtk.EventControllerKey(propagation_phase=Gtk.PropagationPhase.CAPTURE)
@@ -463,18 +462,21 @@ class Inquirist(Gtk.Application):
                 mon = self.focused_monitor()
                 if mon is not None:
                     Layer.set_monitor(self.win, mon)
-                    Layer.set_monitor(self.backdrop, mon)
-                self.backdrop.present()
             self.set_mode(idx)
             self.win.present()
         else:
             self.set_mode(idx)
         self.text.grab_focus()
 
+    def _outside_click(self, gesture, _n, x, y):
+        w = self.win.pick(x, y, Gtk.PickFlags.DEFAULT)
+        while w is not None and w is not self.panel:
+            w = w.get_parent()
+        if w is None:
+            self.hide()
+
     def hide(self):
         self.win.set_visible(False)
-        if self.backdrop:
-            self.backdrop.set_visible(False)
         self.store.remove_all()
 
 

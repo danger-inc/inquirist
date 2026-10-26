@@ -228,7 +228,7 @@ class Apps(Mode):
                 keys = " ".join(info.get_keywords() or [])
                 cats = (info.get_categories() or "").replace(";", " ")
             exe = (info.get_executable() or "")
-            it = Item(esc(name), dim(gen) if gen else "", icon=info.get_icon(), main=name,
+            it = Item(esc(name), dim(gen) if gen else "", icon=info.get_icon() or Gio.ThemedIcon.new("application-x-executable"), main=name,
                       extra=f"{gen} {exe} {keys} {cats}", ident=info.get_id() or name, data=info, markup=True)
             items.append(it)
         items.sort(key=lambda i: i.main)
