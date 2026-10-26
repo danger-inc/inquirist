@@ -384,7 +384,7 @@ class Inquirist(Gtk.Application):
 
     def switch(self, d):
         i = (self.modes.index(self.mode) + d) % len(self.modes)
-        self.set_mode(i)
+        self.set_mode(i, quiet=True)
 
     def _key(self, _c, kv, _code, state):
         name = Gdk.keyval_name(kv) or ""
