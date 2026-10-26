@@ -934,7 +934,29 @@ class System(Mode):
         rows = [r for r in rows if usable(r[3])]
         self.base = [Item(f"{esc(name)}", extra, glyph=ic, css="g-code", main=name, extra=meta, ident=key, markup=True)
                      for ic, name, extra, key, meta in rows]
+        self.base += self._design_rows()
         self.items = self.base
+
+    def _design_rows(self):
+        """Design der ganzen Suite (~/.config/ist-theme.json) – wirkt live in allen offenen Apps."""
+        try:
+            import istheme
+        except ImportError:
+            return []
+        st = istheme.load()
+        cur = lambda on: "<b>an</b>" if on else ""
+        auto = st["theme"] == "auto"
+        out = [Item("design: automatisch · dunkel", cur(auto and st["mode"] == "dark"), glyph="󰏘", css="g-code",
+                    main="design automatisch dunkel", extra="theme farben matugen darkmode", ident="theme:auto:dark",
+                    markup=True),
+               Item("design: automatisch · hell", cur(auto and st["mode"] == "light"), glyph="󰏘", css="g-code",
+                    main="design automatisch hell", extra="theme farben matugen lightmode", ident="theme:auto:light",
+                    markup=True)]
+        for key, t in istheme.THEMES.items():
+            out.append(Item(f"design: {esc(t[0].lower())}", cur(st["theme"] == key), glyph="󰏘", css="g-code",
+                            main="design " + t[0].lower(), extra="theme farben " + ("hell" if t[1] else "dunkel"),
+                            ident="theme:" + key, markup=True))
+        return out
 
     def rows(self, q):
         if self.confirm:
@@ -957,6 +979,13 @@ class System(Mode):
                 return True
             self.ui.set_query("")
             self.ui.refilter()
+            return False
+        if k.startswith("theme:"):
+            import istheme
+            _t, key, *mode = k.split(":")
+            istheme.save(theme=key, mode=mode[0] if mode else None)
+            self._build()
+            self.ui.refilter(keep=True)
             return False
         if k in self.CONFIRM:
             self.confirm = k
