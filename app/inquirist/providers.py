@@ -591,10 +591,13 @@ def calc_expr(expr):
     return res[-1].strip() if res else "?"
 
 
+DIVIST = shutil.which("divist") or os.path.join(HOME, ".local/bin/divist")
+
+
 class Calc(Mode):
     id, label = "rechner", "rechner"
-    hint = "enter kopiert   strg+⏎ ergebnis anhängen"
-    placeholder = "12% von 80 · 5 km in mi · sqrt(2) · 100 eur in usd …"
+    hint = "enter kopiert   strg+⏎ ergebnis anhängen   unten: in divist öffnen"
+    placeholder = "12% von 80 · 5 km in mi · sqrt(2) · 100 eur in usd …   (gleichungen, ableitungen … → divist)"
     FILE = os.path.join(RUN, "inquirist-rechner.json")
 
     def __init__(self, ui):
@@ -627,6 +630,12 @@ class Calc(Mode):
             if self.cur and self.cur[0] == q:
                 out.append(Item(f"<b>{esc(self.cur[1])}</b>", dim("= " + q), glyph="\U000F00E8", css="g-code",
                                 ident=self.cur[1], data=("res", self.cur[1]), markup=True))
+            if os.path.exists(DIVIST):
+                out.append(Item("in divist öffnen", dim(q), glyph="\U000F00EC", css="g-code", main="divist " + q,
+                                ident="divist:" + q, data=("divist", q)))
+        elif os.path.exists(DIVIST):
+            out.append(Item("divist", dim("Taschenrechner mit Brüchen, Gleichungen, Graph …"), glyph="\U000F00EC",
+                            css="g-code", main="divist rechner", ident="divist:", data=("divist", "")))
         for expr, res in self.hist:
             out.append(Item(f"<b>{esc(res)}</b>", dim("= " + expr), glyph="\U000F02DA", css="g-file",
                             ident=res, data=("hist", expr), main=expr, markup=True))
@@ -659,6 +668,9 @@ class Calc(Mode):
     def activate(self, item, q, alt=False):
         kind, val = item.data
         res = item.ident
+        if kind == "divist":
+            detach(DIVIST, val) if val else detach(DIVIST)
+            return True
         if kind == "res":
             self.hist = [[q.strip(), res]] + [h for h in self.hist if h[0] != q.strip()][:14]
             try:
