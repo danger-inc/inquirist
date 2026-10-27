@@ -1,5 +1,9 @@
 # inquirist – Änderungen
 
+## 1.3.0 (2026-10-27)
+- **Wechsel-Animation**: Der Wechsel zwischen Hell und Dunkel (und zwischen Designs) läuft als Scanbalken über den ganzen Bildschirm. Alle Fenster, die Leiste und das Terminal wechseln darunter im selben Moment, hinter dem Balken steht das neue Design. An/aus und Dauer (Standard 1,5 s) stehen in der Designauswahl der Einstellungen.
+- Im System-Modus „design: …“ wechselt das Design mit der Animation.
+
 ## 1.2.0 (2026-10-27)
 - **Rechner → divist**: Im Modus „rechner“ gibt es eine Zeile „in divist öffnen“ – sie übergibt die Eingabe an divist (den Taschenrechner mit Brüchen, Gleichungen, Ableitungen und Graph). Ohne Eingabe öffnet „divist“ den Rechner leer.
 
