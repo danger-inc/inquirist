@@ -33,7 +33,7 @@ mkdir -p "$DIR" "$RICE/fonts" "$BIN" "$APPS" "$ICONS"
 cp -f "$SRC"/app/inquirist/*.py "$SRC"/app/inquirist/VERSION "$SRC"/app/inquirist/CHANGELOG.md "$DIR/"
 install -m 755 "$SRC/inquirist.sh" "$DIR/inquirist.sh"
 chmod +x "$DIR/inquirist.py"
-cp -f "$SRC/app/tui.py" "$SRC/app/glass.py" "$SRC/app/istheme.py" "$SRC/app/changelog.py" "$SRC/app/swipe.py" "$RICE/"   # gemeinsame Bausteine
+cp -f "$SRC/app/tui.py" "$SRC/app/glass.py" "$SRC/app/istheme.py" "$SRC/app/ist-swipe.py" "$SRC/app/changelog.py" "$SRC/app/swipe.py" "$RICE/"   # gemeinsame Bausteine
 cp -f "$SRC"/app/fonts/* "$RICE/fonts/"                           # Symbolschrift (Icons ohne Nerd Font)
 ln -sf "$DIR/inquirist.sh" "$BIN/inquirist"
 sed "s|@EXEC@|$BIN/inquirist|g" "$SRC/inquirist.desktop.in" > "$APPS/inquirist.desktop"
