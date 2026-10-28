@@ -1,6 +1,6 @@
 # inquirist – die Modi (Datenquellen) des Starters. Kein Fenster-Code hier: jeder Modus liefert Zeilen (Item),
 # filtert sie und führt die Auswahl aus. Das Fenster (inquirist.py) zeichnet nur.
-import json, os, re, shutil, socket, subprocess, threading, time, unicodedata
+import json, math, os, re, shutil, socket, subprocess, threading, time, unicodedata
 
 import gi
 from gi.repository import Gio, GLib, GObject
@@ -26,8 +26,9 @@ class Item(GObject.Object):
     """Eine Zeile der Liste. icon = Gio.Icon/Name, sonst glyph (+ css-Klasse g-…)."""
 
     def __init__(self, title, sub="", meta="", glyph="", css="", icon=None, main=None, extra="", ident="",
-                 data=None, markup=False, selectable=True):
+                 data=None, markup=False, selectable=True, thumb=None):
         super().__init__()
+        self.thumb = thumb                  # Funktion → GdkPixbuf (läuft im Thread, nur für sichtbare Zeilen)
         self.title, self.sub, self.meta = title, sub, meta
         self.glyph, self.css, self.icon = glyph, css, icon
         self.main = (main if main is not None else title).lower()      # Treffer im Namen zählen mehr …
@@ -67,7 +68,12 @@ def score(item, toks):
     return total - len(item.main) * 0.02
 
 
-def filter_items(items, q, limit=400):
+def usage_bonus(weight):
+    """Häufig/zuletzt Benutztes rückt bei ähnlicher Trefferqualität nach oben (höchstens +30 Punkte)."""
+    return min(30.0, 9.0 * math.log2(1.0 + weight)) if weight > 0 else 0.0
+
+
+def filter_items(items, q, limit=400, bonus=None):
     toks = q.lower().split()
     if not toks:
         return items[:limit] if limit else items
@@ -75,7 +81,7 @@ def filter_items(items, q, limit=400):
     for n, it in enumerate(items):
         s = score(it, toks)
         if s is not None:
-            hits.append((-s, n, it))
+            hits.append((-(s + (bonus(it) if bonus else 0.0)), n, it))
     hits.sort(key=lambda h: (h[0], h[1]))
     return [h[2] for h in hits[:limit]]
 
@@ -169,6 +175,7 @@ class Mode:
     label = ""
     hint = "enter öffnen"
     placeholder = "suchen …"
+    track = False                      # True: gewählte Zeilen werden gezählt → Reihenfolge nach Nutzung
 
     def __init__(self, ui):
         self.ui = ui
@@ -177,8 +184,17 @@ class Mode:
     def show(self):
         """Fenster geht auf (bzw. Modus wird gewählt): Daten sofort aus dem Zwischenspeicher, dann frisch."""
 
+    def bonus(self, item):
+        return usage_bonus(self.ui.history.weight(self.id, item.ident)) if self.track and item.ident else 0.0
+
+    def by_usage(self, rows):
+        """Ohne Eingabe: Benutztes zuerst (stabil – Unbenutztes behält seine Reihenfolge)."""
+        h = self.ui.history
+        return sorted(rows, key=lambda i: -h.weight(self.id, i.ident))
+
     def rows(self, q):
-        return filter_items(self.items, q)
+        rows = filter_items(self.items, q, bonus=self.bonus)
+        return self.by_usage(rows) if self.track and not q.strip() else rows
 
     def total(self):
         return len(self.items)
@@ -204,6 +220,7 @@ class Apps(Mode):
     id, label = "apps", "apps"
     hint = "enter starten"
     placeholder = "programm suchen …"
+    track = True
 
     def __init__(self, ui):
         super().__init__(ui)
@@ -236,12 +253,10 @@ class Apps(Mode):
         self._order()
 
     def _order(self):
-        h = self.ui.history
-        self.items = sorted(self.base, key=lambda i: -h.weight("apps", i.ident))
+        self.items = self.base
 
     def activate(self, item, q, alt=False):
         info = item.data
-        self.ui.history.bump("apps", item.ident)
         if isinstance(info, Gio.DesktopAppInfo) and info.get_boolean("Terminal"):
             cmd = re.sub(r"%[a-zA-Z%]", "", info.get_commandline() or "").strip()
             detach(*terminal_cmd(), "sh", "-c", cmd)
@@ -360,8 +375,34 @@ SKIP_DIRS = {"node_modules", "__pycache__", ".git", ".cache", "venv", ".venv", "
              ".mozilla", ".steam", "Trash", ".wine"}
 
 
+IMG_EXT = (".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".svg", ".tif", ".tiff", ".avif", ".ico")
+THUMB = 60
+
+
+def pixbuf_file(path):
+    from gi.repository import GdkPixbuf
+    return GdkPixbuf.Pixbuf.new_from_file_at_scale(path, THUMB, THUMB, True)
+
+
+def pixbuf_bytes(data):
+    from gi.repository import GdkPixbuf
+    ld = GdkPixbuf.PixbufLoader()
+    try:
+        ld.write(data)
+        ld.close()
+        pb = ld.get_pixbuf()
+    except GLib.Error:
+        return None
+    if pb is None:
+        return None
+    w, h = pb.get_width(), pb.get_height()
+    k = THUMB / max(w, h)
+    return pb.scale_simple(max(1, int(w * k)), max(1, int(h * k)), GdkPixbuf.InterpType.BILINEAR) if k < 1 else pb
+
+
 class Files(Mode):
     id, label = "dateien", "dateien"
+    track = True
     hint = "enter öffnen   strg+⏎ in filist   ⌫ ordner hoch   strg+h versteckte"
     placeholder = "datei oder ordner …  (/ oder ~/ tippt einen pfad)"
 
@@ -434,10 +475,13 @@ class Files(Mode):
         ex = bool(st and not is_dir and st.st_mode & 0o111)
         glyph, group = icons.for_name(name, is_dir, is_link, ex)
         size = None if is_dir else (st.st_size if st else None)
+        thumb = None
+        if not is_dir and name.lower().endswith(IMG_EXT) and (size or 0) < 40_000_000:
+            thumb = lambda p=path: pixbuf_file(p)
         meta = f"{human_size(size):>9}   {human_date(st.st_mtime if st else 0):<13}"
         it = Item(esc(name), dim(sub) if sub else "", meta=meta, glyph=glyph,
                   css=f"g-{group}" + (" flink" if is_link else "") + (" fhidden" if name.startswith(".") else ""),
-                  main=name, ident=path, data={"dir": is_dir, "path": path}, markup=True)
+                  main=name, ident=path, data={"dir": is_dir, "path": path}, markup=True, thumb=thumb)
         return it
 
     # ---- Eingabe → Ordner + Filter
@@ -463,7 +507,7 @@ class Files(Mode):
             for n, it in enumerate(pool):
                 s = score(it, toks)
                 if s is not None:
-                    hits.append((-s, not it.data["dir"], n, it))
+                    hits.append((-(s + self.bonus(it)), not it.data["dir"], n, it))
             hits.sort(key=lambda h: h[:3])
             pool = [h[3] for h in hits]
         rows = pool
@@ -708,7 +752,9 @@ class Clip(Mode):
             cid, _, prev = line.partition("\t")
             if prev.startswith("[[ binary data"):
                 it = Item(dim("bild " + prev.strip("[] ").replace("binary data", "").strip()), glyph="\U000F021F",
-                          css="g-img", main="bild image", ident=line, markup=True)
+                          css="g-img", main="bild image", ident=line, markup=True,
+                          thumb=lambda l=line: pixbuf_bytes(subprocess.run(["cliphist", "decode"], input=l.encode() + b"\n",
+                                                                           capture_output=True, timeout=5).stdout))
             else:
                 p = " ".join(prev.split())
                 it = Item(esc(p[:110]) + ("…" if len(p) > 110 else ""), glyph="\U000F0219", css="g-txt",
@@ -771,6 +817,7 @@ SYMBOLS = [
 
 class Chars(Mode):
     id, label = "zeichen", "zeichen"
+    track = True
     hint = "enter kopiert"
     placeholder = "emoji oder sonderzeichen …  (deutsch und englisch)"
 
@@ -816,6 +863,16 @@ ENGINES = {
 }
 
 
+def engines():
+    """Eingebaute Suchseiten + eigene aus ~/.config/inquirist/config.json ("engines": {"kürzel": ["Name", "url mit {}"]})."""
+    import extras
+    out = dict(ENGINES)
+    for k, v in (extras.config().get("engines") or {}).items():
+        if isinstance(v, (list, tuple)) and len(v) == 2 and "{}" in str(v[1]):
+            out[str(k)] = (str(v[0]), str(v[1]))
+    return out
+
+
 class Web(Mode):
     id, label = "web", "web"
     hint = "enter sucht   kürzel + leerzeichen wählt die seite"
@@ -828,8 +885,9 @@ class Web(Mode):
                                                        and not q.startswith("/")):
             return ("adresse öffnen", q if "://" in q else "https://" + q)
         key, _, rest = q.partition(" ")
-        if key in ENGINES and key and rest.strip():
-            n, u = ENGINES[key]
+        eng = engines()
+        if key in eng and key and rest.strip():
+            n, u = eng[key]
             return (n, u.format(quote_plus(rest.strip())))
         n, u = ENGINES[""]
         return (n, u.format(quote_plus(q)))
@@ -840,14 +898,14 @@ class Web(Mode):
             name, url = self._target(q)
             out.append(Item(f"{esc(q.strip())}  " + dim(name), glyph="\U000F0349", css="g-code", ident=url,
                             data=url, markup=True))
-        for key, (name, _u) in ENGINES.items():
+        for key, (name, _u) in engines().items():
             if key:
                 out.append(Item(f"<b>{key}</b> …  {dim(name)}", glyph="\U000F059F", css="g-file", ident=key,
                                 data="key", markup=True))
         return out
 
     def total(self):
-        return len(ENGINES) - 1
+        return len(engines()) - 1
 
     def message(self, q):
         return "" if q.strip() else dim("suchbegriff + enter sucht mit duckduckgo · kürzel davor wählt die seite")
@@ -863,6 +921,7 @@ class Web(Mode):
 # ---------------------------------------------------------------- system
 class System(Mode):
     id, label = "system", "system"
+    track = True
     hint = "enter ausführen"
     placeholder = "sperren, wlan, bluetooth, screenshot, … "
 
@@ -975,7 +1034,7 @@ class System(Mode):
             return [Item(f"ja, {self.CONFIRM[self.confirm]}", glyph="\U000F012C", css="g-code", ident="yes",
                          markup=True),
                     Item("abbrechen", glyph="\U000F0739", css="g-link", ident="back", markup=True)]
-        return filter_items(self.items, q)
+        return super().rows(q)
 
     def message(self, q):
         if self.confirm:
@@ -1009,3 +1068,16 @@ class System(Mode):
 
 
 MODES = [Apps, Windows, Files, Calc, Clip, Chars, Web, System]
+
+
+def all_modes():
+    """Eingebaute Modi, dann notizen/mails/termine/links/befehle, dann Plugin-Modi aus config.json."""
+    import extras
+    from functools import partial
+    out = MODES + [extras.Notes, extras.Mails, extras.Events, extras.Links, extras.Commands]
+    ids = {c.id for c in out}
+    for spec in extras.config().get("plugins") or []:
+        if isinstance(spec, dict) and spec.get("id") and spec.get("cmd") and spec["id"] not in ids:
+            ids.add(spec["id"])
+            out.append(partial(extras.Script, spec=spec))
+    return out

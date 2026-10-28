@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-# inquirist: der Starter der Suite (Super+R) – Programme, Fenster, Dateien, Rechner, Zwischenablage, Zeichen, Web, System.
+# inquirist: der Starter der Suite (Super+R) – Programme, Fenster, Dateien, Rechner, Zwischenablage, Zeichen, Web, System,
+# dazu Notizen, Mails, Termine, Links, eigene Befehle und Plugin-Modi (~/.config/inquirist/config.json).
 # Läuft unsichtbar im Hintergrund (--daemon) und blendet sich auf Tastendruck sofort ein; Eingaben sind nie blockiert
 # (alles Langsame läuft in Threads). Ebene (layer-shell) statt Fenster: kein Kacheln, kein Arbeitsflächenwechsel.
 #   inquirist [modus]         zeigen (oder umschalten / schließen, wenn schon offen)
 #   inquirist --daemon        nur im Hintergrund starten      inquirist --quit
-# Modi: apps fenster dateien rechner ablage zeichen web system
-import os, sys
+# Modi: apps fenster dateien rechner ablage zeichen web system notizen mails termine links befehle (+ Plugins)
+import os, sys, threading
 
 HERE = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, HERE)
@@ -35,6 +36,8 @@ APP_ID = "de.invincible.Inquirist"
 TOP_MARGIN = 118           # Abstand vom oberen Bildschirmrand (unter der Waybar), wie der alte Starter
 SUP = "¹²³⁴⁵⁶⁷⁸⁹"
 LINES = 9
+PANEL_W = 1100             # Breite des Fensters (auf kleinen Bildschirmen schmaler)
+THUMB_PX = 30
 
 CSS = """
 window.iq-win { background: none; background-color: transparent; box-shadow: none; }
@@ -44,7 +47,8 @@ window.iq-win * { font-family: "JetBrainsMono Nerd Font", "Notes Icons", monospa
 .iq-head { padding: 10px 14px 6px 14px; }
 .iq-brand { background-color: @primary; color: @on_primary; padding: 2px 9px; border-radius: 4px; }
 button.iq-tab { background: none; border: none; box-shadow: none; outline: none; min-height: 0; min-width: 0;
-    padding: 2px 5px; border-radius: 4px; color: alpha(@foreground, 0.6); }
+    padding: 2px 4px; border-radius: 4px; color: alpha(@foreground, 0.6); font-size: 9pt; }
+.iq-tabs scrollbar { opacity: 0; min-height: 0; min-width: 0; }
 button.iq-tab:hover { background-color: alpha(@primary, 0.12); color: @foreground; }
 button.iq-tab.sel { background-color: alpha(@primary, 0.22); color: @foreground; }
 .iq-input { margin: 4px 14px 8px 14px; padding: 6px 10px; border: 1px solid alpha(@primary, 0.55); border-radius: 4px;
@@ -95,6 +99,8 @@ class Inquirist(Gtk.Application):
         self.mode = None
         self.tabs = []
         self._crumb_key = None
+        self.thumbs = {}                   # ident → Gdk.Texture | False (Vorschaubilder der sichtbaren Zeilen)
+        self.thumb_wait = set()
 
     # ================= Start =================
     def do_startup(self):
@@ -125,7 +131,7 @@ class Inquirist(Gtk.Application):
         win = self.win = Gtk.Window(application=self, title="inquirist", resizable=bool(self.use_layer))
         win.add_css_class("iq-win")
         if not self.use_layer:
-            win.set_default_size(820, -1)
+            win.set_default_size(PANEL_W, -1)
         win.set_hide_on_close(True)
         self.backdrop = None
         if self.use_layer:
@@ -145,18 +151,21 @@ class Inquirist(Gtk.Application):
             win.connect("notify::is-active", lambda w, _p: None if w.is_active() or not w.get_visible() else self.hide())
 
         # Kopf: Marke + Reiter
-        head = Gtk.Box(spacing=10)
+        head = Gtk.Box(spacing=8)
         head.add_css_class("iq-head")
         brand = Gtk.Label(label="inquirist")
         brand.add_css_class("iq-brand")
         brand.set_valign(Gtk.Align.CENTER)
         head.append(brand)
-        tabs = Gtk.Box(spacing=2, hexpand=True)
-        head.append(tabs)
-        for i, cls in enumerate(P.MODES):
+        tabs = Gtk.Box(spacing=2)
+        self.tab_scroll = Gtk.ScrolledWindow(child=tabs, hexpand=True, vscrollbar_policy=Gtk.PolicyType.NEVER,
+                                             hscrollbar_policy=Gtk.PolicyType.EXTERNAL, propagate_natural_height=True)
+        self.tab_scroll.add_css_class("iq-tabs")
+        head.append(self.tab_scroll)
+        for i, cls in enumerate(P.all_modes()):
             m = cls(self)
             self.modes.append(m)
-            b = Gtk.Button(label=f"{SUP[i]}{m.label}", focusable=False, focus_on_click=False)
+            b = Gtk.Button(label=f"{SUP[i] if i < len(SUP) else ''}{m.label}", focusable=False, focus_on_click=False)
             b.add_css_class("iq-tab")
             b.connect("clicked", self._tab_clicked, i)
             tabs.append(b)
@@ -209,7 +218,7 @@ class Inquirist(Gtk.Application):
             panel.append(w)
         self.panel = panel
         if self.use_layer:
-            panel.set_size_request(820, -1)
+            panel.set_size_request(PANEL_W, -1)
             panel.set_halign(Gtk.Align.CENTER)
             panel.set_valign(Gtk.Align.START)
             panel.set_margin_top(TOP_MARGIN)
@@ -249,7 +258,16 @@ class Inquirist(Gtk.Application):
         title = glyph.get_next_sibling()
         sub = title.get_next_sibling()
         meta = sub.get_next_sibling()
-        if it.icon is not None:
+        tex = self.thumbs.get(it.ident) if it.thumb is not None else None
+        if it.thumb is not None and tex is None:
+            self._want_thumb(it)
+        if tex:
+            icon.set_from_paintable(tex)
+            icon.set_pixel_size(THUMB_PX)
+            icon.set_visible(True)
+            glyph.set_visible(False)
+        elif it.icon is not None:
+            icon.set_pixel_size(22)
             if isinstance(it.icon, str):
                 icon.set_from_icon_name(it.icon)
             else:
@@ -271,6 +289,36 @@ class Inquirist(Gtk.Application):
         sub.set_markup(it.sub) if it.sub else None
         meta.set_visible(bool(it.meta))
         meta.set_label(it.meta)
+
+    # ---- Vorschaubilder (Bilder in Dateien/Ablage): im Thread laden, dann die Zeile neu binden
+    def _want_thumb(self, it):
+        key = (self.mode.id, it.ident)
+        if key in self.thumb_wait:
+            return
+        self.thumb_wait.add(key)
+
+        def work():
+            try:
+                pb = it.thumb()
+            except Exception:
+                pb = None
+            GLib.idle_add(self._thumb_done, key, it, pb)
+        threading.Thread(target=work, daemon=True).start()
+
+    def _thumb_done(self, key, it, pb):
+        self.thumb_wait.discard(key)
+        if len(self.thumbs) > 300:
+            self.thumbs.pop(next(iter(self.thumbs)))
+        self.thumbs[it.ident] = Gdk.Texture.new_for_pixbuf(pb) if pb is not None else False
+        if pb is not None:
+            for i in range(self.store.get_n_items()):
+                if self.store.get_item(i) is it:
+                    cur = self.sel.get_selected()
+                    self.store.items_changed(i, 1, 1)
+                    if cur != Gtk.INVALID_LIST_POSITION:
+                        self.sel.set_selected(cur)
+                    break
+        return False
 
     # ================= Zustand =================
     def launch_context(self):
@@ -300,6 +348,18 @@ class Inquirist(Gtk.Application):
             self.text.set_text("")
         self.mode.show()
         self.refilter()
+        self._scroll_tab(i)
+
+    def _scroll_tab(self, i):
+        """Reiter in Sicht holen (bei vielen Modi / schmalem Bildschirm)."""
+        def go():
+            adj = self.tab_scroll.get_hadjustment()
+            b = self.tabs[i]
+            x = sum(t.get_width() + 2 for t in self.tabs[:i])
+            if x < adj.get_value() or x + b.get_width() > adj.get_value() + adj.get_page_size():
+                adj.set_value(max(0, x - 40))
+            return False
+        GLib.idle_add(go)
 
     @staticmethod
     def _foot(hint):
@@ -406,7 +466,7 @@ class Inquirist(Gtk.Application):
             self.move(-(LINES - 1))
         elif name in ("Tab", "ISO_Left_Tab"):
             self.switch(-1 if shift or name == "ISO_Left_Tab" else 1)
-        elif (ctrl or alt) and name in tuple("12345678"[:len(self.modes)]):
+        elif (ctrl or alt) and name in tuple("123456789"[:len(self.modes)]):
             self.set_mode(int(name) - 1)
         elif name in ("Return", "KP_Enter"):
             self.activate(self.sel.get_selected(), alt=ctrl)
@@ -422,6 +482,8 @@ class Inquirist(Gtk.Application):
                 self.hide()
             return
         if self.mode.activate(it, self.query(), alt):
+            if self.mode.track and it.ident:
+                self.history.bump(self.mode.id, it.ident)           # zählt für die Reihenfolge (Benutztes nach oben)
             self.hide()
 
     # ================= Zeigen / Verstecken =================
@@ -462,6 +524,7 @@ class Inquirist(Gtk.Application):
                 mon = self.focused_monitor()
                 if mon is not None:
                     Layer.set_monitor(self.win, mon)
+                    self.panel.set_size_request(max(560, min(PANEL_W, mon.get_geometry().width - 60)), -1)
             self.set_mode(idx)
             self.win.present()
         else:

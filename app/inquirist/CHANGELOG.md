@@ -1,5 +1,12 @@
 # inquirist – Änderungen
 
+## 1.4.0 (2026-10-29)
+- **Reihenfolge nach Nutzung**: Was du oft und zuletzt wählst, rückt bei gleicher Trefferqualität nach oben – in apps, dateien, zeichen, system und den neuen Modi. Ohne Eingabe stehen die meistbenutzten Einträge vorn.
+- **Neue Modi**: **notizen** (notist-Notizen, Words und LaTeX, auch im Text gesucht, Enter öffnet in notist), **mails** (alle mailist-Konten, Enter springt zur Mail), **termine** (datist, ab heute; Strg+⏎ im Browser), **links** (Lesezeichen und oft besuchte Seiten aus Zen/Firefox/Chromium; Strg+⏎ kopiert die Adresse) und **befehle** (eigene Befehle und Textbausteine; jeder getippte Text kann auch gleich als Shell-Befehl laufen, Strg+⏎ im Terminal).
+- **Eigene Einstellungen** in `~/.config/inquirist/config.json`: `commands`, `snippets`, eigene Suchseiten für den web-Modus (`engines`) und **Plugin-Modi** (`plugins`: ein Skript bekommt die Eingabe und gibt eine JSON-Liste aus). Unten im befehle-Modus öffnet „bearbeiten“ die Datei.
+- **Vorschaubilder**: Bilder in dateien und in der Zwischenablage zeigen eine kleine Vorschau statt des Symbols.
+- Breiteres Fenster, Reiter lassen sich scrollen und der gewählte Reiter bleibt sichtbar; Alt/Strg+9 wählt notizen.
+
 ## 1.3.0 (2026-10-27)
 - **Wechsel-Animation**: Der Wechsel zwischen Hell und Dunkel (und zwischen Designs) läuft als Scanbalken über den ganzen Bildschirm. Alle Fenster, die Leiste und das Terminal wechseln darunter im selben Moment, hinter dem Balken steht das neue Design. An/aus und Dauer (Standard 1,5 s) stehen in der Designauswahl der Einstellungen.
 - Im System-Modus „design: …“ wechselt das Design mit der Animation.
