@@ -32,6 +32,12 @@ except (ImportError, ValueError):
 import tui  # noqa: E402
 import providers as P  # noqa: E402
 
+try:                           # glibc: wenige malloc-Arenen, der Daemon bleibt schlank
+    import ctypes
+    ctypes.CDLL("libc.so.6").mallopt(-8, 2)        # M_ARENA_MAX
+except (OSError, AttributeError):
+    pass
+
 APP_ID = "de.invincible.Inquirist"
 TOP_MARGIN = 118           # Abstand vom oberen Bildschirmrand (unter der Waybar), wie der alte Starter
 SUP = "¹²³⁴⁵⁶⁷⁸⁹"
@@ -541,6 +547,8 @@ class Inquirist(Gtk.Application):
     def hide(self):
         self.win.set_visible(False)
         self.store.remove_all()
+        if self.daemon:
+            GLib.timeout_add_seconds(3, lambda: (tui.trim_memory(), False)[-1])
 
 
 def main():
