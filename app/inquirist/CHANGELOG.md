@@ -1,5 +1,8 @@
 # inquirist – Änderungen
 
+## 1.5.0 (2026-11-01)
+- **Scroll-Ende**: Wer am Ende einer Seite weiterscrollt, sieht aus der Kante einen Verlauf aus ░ ▒ ▓ █ aufsteigen, am Mauszeiger am höchsten. Die Liste bewegt sich dabei nicht und der Effekt läuft ohne Überschwingen aus. Er erscheint nur, wenn kein umgebendes Scroll-Fenster mehr weiterscrollen kann. Abschalten: `"scroll_end": false` in ~/.config/rice-apps/settings.json oder Energiesparmodus.
+
 ## 1.4.0 (2026-10-29)
 - **Reihenfolge nach Nutzung**: Was du oft und zuletzt wählst, rückt bei gleicher Trefferqualität nach oben – in apps, dateien, zeichen, system und den neuen Modi. Ohne Eingabe stehen die meistbenutzten Einträge vorn.
 - **Neue Modi**: **notizen** (notist-Notizen, Words und LaTeX, auch im Text gesucht, Enter öffnet in notist), **mails** (alle mailist-Konten, Enter springt zur Mail), **termine** (datist, ab heute; Strg+⏎ im Browser), **links** (Lesezeichen und oft besuchte Seiten aus Zen/Firefox/Chromium; Strg+⏎ kopiert die Adresse) und **befehle** (eigene Befehle und Textbausteine; jeder getippte Text kann auch gleich als Shell-Befehl laufen, Strg+⏎ im Terminal).
