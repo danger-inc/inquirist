@@ -1081,3 +1081,90 @@ def all_modes():
             ids.add(spec["id"])
             out.append(partial(extras.Script, spec=spec))
     return out
+
+
+# ---------------------------------------------------------------- Reiter einstellen
+HIDDEN_BY_DEFAULT = ("dateien", "web", "notizen", "links")      # Standard: nicht in der Leiste (per Einstellungen oder Befehl erreichbar)
+LAST_BY_DEFAULT = "system"                                      # Standard: ganz rechts
+
+
+def default_tabs(ids):
+    return [i for i in ids if i not in HIDDEN_BY_DEFAULT and i != LAST_BY_DEFAULT] + \
+        ([LAST_BY_DEFAULT] if LAST_BY_DEFAULT in ids else [])
+
+
+def tab_ids(ids):
+    """Sichtbare Reiter in ihrer Reihenfolge: config.json "tabs" (Liste von Modus-Namen), sonst der Standard."""
+    import extras
+    cfg = extras.config().get("tabs")
+    if isinstance(cfg, list):
+        out = []
+        for i in cfg:
+            if i in ids and i not in out:
+                out.append(i)
+        return out or default_tabs(ids)
+    return default_tabs(ids)
+
+
+def save_tabs(ids):
+    """Reiter in config.json merken (None = Standard wiederherstellen)."""
+    import extras
+    extras.ensure_config()
+    try:
+        with open(extras.CONF, encoding="utf-8") as f:
+            d = json.load(f)
+        if not isinstance(d, dict):
+            d = {}
+    except (OSError, ValueError):
+        d = {}
+    if ids is None:
+        d.pop("tabs", None)
+    else:
+        d["tabs"] = list(ids)
+    tmp = extras.CONF + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(d, f, indent=2, ensure_ascii=False)
+        f.write("\n")
+    os.replace(tmp, extras.CONF)
+
+
+class Settings(Mode):
+    """Einstellungen: welche Modi als Reiter oben stehen (und in welcher Reihenfolge)."""
+    id, label = "einstellungen", "einstellungen"
+    hint = "enter an/aus   strg+↑↓ verschieben   alt+r standard"
+    placeholder = "reiter suchen …"
+    ON, OFF = "\U000F0132", "\U000F0131"
+
+    def rows(self, q):
+        vis = self.ui.tab_order
+        rest = [m.id for m in self.ui.modes if m.id not in vis and m.id != self.id]
+        by = {m.id: m for m in self.ui.modes}
+        items = []
+        for pos, mid in enumerate(vis + rest):
+            on = mid in vis
+            sup = self.ui.SUP[vis.index(mid)] if on and vis.index(mid) < len(self.ui.SUP) else ""
+            it = Item(by[mid].label, "in der leiste" if on else "versteckt  (nur per Befehl:  inquirist " + mid + ")",
+                      meta=sup, glyph=self.ON if on else self.OFF, css="g-dir" if on else "g-file", ident=mid)
+            it.data = {"tab": mid}
+            items.append(it)
+        return filter_items(items, q, limit=100) if q.strip() else items
+
+    def total(self):
+        return len(self.ui.modes) - 1
+
+    def message(self, q):
+        return dim("Angehakte Modi stehen als Reiter oben; versteckte gehen weiter per „inquirist <modus>“.")
+
+    def activate(self, item, q, alt=False):
+        self.ui.toggle_tab(item.data["tab"])
+        return False
+
+    def key(self, name, q):
+        cur = self.ui.current()
+        if name in ("ctrl+Up", "ctrl+Down") and cur is not None:
+            self.ui.move_tab(cur.ident, -1 if name == "ctrl+Up" else 1)
+            return True
+        if name == "alt+r":
+            self.ui.reset_tabs()
+            return True
+        return False

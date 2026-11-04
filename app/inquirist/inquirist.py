@@ -5,8 +5,9 @@
 # (alles Langsame läuft in Threads). Ebene (layer-shell) statt Fenster: kein Kacheln, kein Arbeitsflächenwechsel.
 #   inquirist [modus]         zeigen (oder umschalten / schließen, wenn schon offen)
 #   inquirist --daemon        nur im Hintergrund starten      inquirist --quit
-# Modi: apps fenster dateien rechner ablage zeichen web system notizen mails termine links befehle (+ Plugins)
-import os, sys, threading
+# Modi: apps fenster dateien rechner ablage zeichen web system notizen mails termine links befehle (+ Plugins);
+# welche davon als Reiter oben stehen, stellt der Knopf 󰒓 ein (config.json "tabs"). „a <text>“ legt direkt einen Termin an (datist).
+import os, re, sys, threading
 
 HERE = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, HERE)
@@ -39,8 +40,11 @@ except (OSError, AttributeError):
     pass
 
 APP_ID = "de.invincible.Inquirist"
-TOP_MARGIN = 118           # Abstand vom oberen Bildschirmrand (unter der Waybar), wie der alte Starter
+TOP_MARGIN = 190           # Abstand vom oberen Bildschirmrand (unter der Waybar), wie der alte Starter
 SUP = "¹²³⁴⁵⁶⁷⁸⁹"
+GEAR = "\U000F0493"
+ADD_RE = re.compile(r"^a\s+(\S.*?)\s*$", re.S)        # Präfix „a “ = Termin anlegen wie die Schnelleingabe in datist
+CAL_DIR = os.path.expanduser("~/.local/share/rice-apps/calendar")
 LINES = 9
 PANEL_W = 1100             # Breite des Fensters (auf kleinen Bildschirmen schmaler)
 THUMB_PX = 30
@@ -56,6 +60,10 @@ button.iq-tab { background: none; border: none; box-shadow: none; outline: none;
     padding: 2px 4px; border-radius: 4px; color: alpha(@foreground, 0.6); font-size: 9pt; }
 .iq-tabs scrollbar { opacity: 0; min-height: 0; min-width: 0; }
 button.iq-tab:hover { background-color: alpha(@primary, 0.12); color: @foreground; }
+button.iq-gear { background: none; border: none; box-shadow: none; outline: none; min-height: 0; min-width: 0;
+    padding: 2px 6px; border-radius: 4px; color: alpha(@foreground, 0.6); }
+button.iq-gear:hover { background-color: alpha(@primary, 0.12); color: @foreground; }
+button.iq-gear.sel { background-color: alpha(@primary, 0.22); color: @foreground; }
 button.iq-tab.sel { background-color: alpha(@primary, 0.22); color: @foreground; }
 .iq-input { margin: 4px 14px 8px 14px; padding: 6px 10px; border: 1px solid alpha(@primary, 0.55); border-radius: 4px;
     background-color: alpha(@background, 0.30); }
@@ -103,7 +111,11 @@ class Inquirist(Gtk.Application):
         self.history = P.History()
         self.modes = []
         self.mode = None
-        self.tabs = []
+        self.tabs = []                     # Reiter-Knöpfe, in Leistenreihenfolge
+        self.tab_btn = {}                  # Modus-Nummer → Knopf (versteckte Modi haben keinen)
+        self.tab_order = []                # sichtbare Modus-Namen in Leistenreihenfolge
+        self.SUP = SUP
+        self._addmod = False
         self._crumb_key = None
         self.thumbs = {}                   # ident → Gdk.Texture | False (Vorschaubilder der sichtbaren Zeilen)
         self.thumb_wait = set()
@@ -163,19 +175,20 @@ class Inquirist(Gtk.Application):
         brand.add_css_class("iq-brand")
         brand.set_valign(Gtk.Align.CENTER)
         head.append(brand)
-        tabs = Gtk.Box(spacing=2)
+        tabs = self.tab_box = Gtk.Box(spacing=2)
         self.tab_scroll = Gtk.ScrolledWindow(child=tabs, hexpand=True, vscrollbar_policy=Gtk.PolicyType.NEVER,
                                              hscrollbar_policy=Gtk.PolicyType.EXTERNAL, propagate_natural_height=True)
         self.tab_scroll.add_css_class("iq-tabs")
         head.append(self.tab_scroll)
-        for i, cls in enumerate(P.all_modes()):
-            m = cls(self)
-            self.modes.append(m)
-            b = Gtk.Button(label=f"{SUP[i] if i < len(SUP) else ''}{m.label}", focusable=False, focus_on_click=False)
-            b.add_css_class("iq-tab")
-            b.connect("clicked", self._tab_clicked, i)
-            tabs.append(b)
-            self.tabs.append(b)
+        for cls in P.all_modes() + [P.Settings]:
+            self.modes.append(cls(self))
+        self.tab_order = P.tab_ids([m.id for m in self.modes if m.id != "einstellungen"])
+        self.gear = Gtk.Button(label=GEAR, focusable=False, focus_on_click=False, tooltip_text="einstellungen: Reiter wählen")
+        self.gear.add_css_class("iq-gear")
+        self.gear.set_valign(Gtk.Align.CENTER)
+        self.gear.connect("clicked", self._gear_clicked)
+        head.append(self.gear)
+        self.build_tabs()
 
         # Eingabe
         inp = Gtk.Box(spacing=8)
@@ -239,6 +252,106 @@ class Inquirist(Gtk.Application):
         mot.connect("motion", self._motion)
         win.add_controller(mot)
         self.set_mode(0, quiet=True)
+
+    # ---- Reiter (sichtbare Modi) und Einstellungen
+    def build_tabs(self):
+        child = self.tab_box.get_first_child()
+        while child:
+            nxt = child.get_next_sibling()
+            self.tab_box.remove(child)
+            child = nxt
+        self.tabs, self.tab_btn = [], {}
+        ids = {m.id: i for i, m in enumerate(self.modes)}
+        for n, mid in enumerate(self.tab_order):
+            i = ids[mid]
+            b = Gtk.Button(label=f"{SUP[n] if n < len(SUP) else ''}{self.modes[i].label}", focusable=False, focus_on_click=False)
+            b.add_css_class("iq-tab")
+            b.connect("clicked", self._tab_clicked, i)
+            self.tab_box.append(b)
+            self.tabs.append(b)
+            self.tab_btn[i] = b
+        if self.mode is not None:
+            self._mark_tabs()
+
+    def _mark_tabs(self):
+        cur = self.modes.index(self.mode)
+        for j, b in self.tab_btn.items():
+            (b.add_css_class if j == cur else b.remove_css_class)("sel")
+        (self.gear.add_css_class if self.mode.id == "einstellungen" else self.gear.remove_css_class)("sel")
+
+    def _gear_clicked(self, *_):
+        if self.mode.id == "einstellungen":
+            self.set_mode(self.modes.index(self._before_settings) if self._before_settings in self.modes else 0)
+        else:
+            self._before_settings = self.mode
+            self.set_mode(len(self.modes) - 1)
+        self.text.grab_focus()
+
+    _before_settings = None
+
+    def _save_tabs(self):
+        try:
+            P.save_tabs(self.tab_order)
+        except OSError:
+            self.say("konnte config.json nicht schreiben")
+        self.build_tabs()
+        self.refilter(keep=True)
+
+    def toggle_tab(self, mid):
+        if mid in self.tab_order:
+            if len(self.tab_order) > 1:
+                self.tab_order.remove(mid)
+        else:
+            if self.tab_order and self.tab_order[-1] == P.LAST_BY_DEFAULT and mid != P.LAST_BY_DEFAULT:
+                self.tab_order.insert(len(self.tab_order) - 1, mid)        # system bleibt ganz rechts
+            else:
+                self.tab_order.append(mid)
+        self._save_tabs()
+
+    def move_tab(self, mid, d):
+        if mid not in self.tab_order:
+            return
+        i = self.tab_order.index(mid)
+        j = i + d
+        if 0 <= j < len(self.tab_order):
+            self.tab_order[i], self.tab_order[j] = self.tab_order[j], self.tab_order[i]
+            self._save_tabs()
+
+    def reset_tabs(self):
+        try:
+            P.save_tabs(None)
+        except OSError:
+            pass
+        self.tab_order = P.default_tabs([m.id for m in self.modes if m.id != "einstellungen"])
+        self.build_tabs()
+        self.refilter(keep=True)
+
+    # ---- Präfix „a “ → Termin
+    def prefix_rows(self, q):
+        """„a grillen nächste woche mittwoch“ → (Zeilen, Hinweis) oder None, wenn kein Präfix."""
+        m = ADD_RE.match(q)
+        if not m or self.mode.id == "einstellungen":
+            return None
+        try:
+            if CAL_DIR not in sys.path:
+                sys.path.append(CAL_DIR)                 # hinten: eigene Module haben Vorrang
+            import quickadd
+        except Exception:  # noqa: BLE001 – datist nicht installiert
+            return None
+        try:
+            ev, rule, until = quickadd.build(m.group(1))
+            quickadd.finish(ev, rule, until)
+            when = quickadd.describe(ev)
+        except Exception as e:  # noqa: BLE001 – ValueError und alles, was die Erkennung sonst wirft
+            return [], P.esc(f"termin: {e}")
+        sub = when + (f" · {ev['location']}" if ev.get("location") else "") + (" · wiederholt" if ev.get("rrule") else "")
+        it = P.Item(ev["title"], sub, meta="⏎ anlegen", glyph="\U000F0415", css="g-dir", ident="addev",
+                    data={"addev": m.group(1), "title": ev["title"], "when": when})
+        return [it], P.dim("Termin in datist anlegen (Präfix „a “) – Zeit weglassen = ganztägig.")
+
+    def add_event(self, text, title, when):
+        P.detach(os.path.expanduser("~/.local/bin/datist"), "--add", text)
+        P.notify(f"Termin angelegt: {title} · {when}")
 
     # ---- Zeilen
     def _row_setup(self, _f, li):
@@ -345,8 +458,7 @@ class Inquirist(Gtk.Application):
 
     def set_mode(self, i, quiet=False):
         self.mode = self.modes[i]
-        for j, b in enumerate(self.tabs):
-            (b.add_css_class if j == i else b.remove_css_class)("sel")
+        self._mark_tabs()
         self.text.set_placeholder_text(self.mode.placeholder)
         self.foot.set_markup(self._foot(self.mode.hint))
         self._crumb_key = None
@@ -359,9 +471,11 @@ class Inquirist(Gtk.Application):
     def _scroll_tab(self, i):
         """Reiter in Sicht holen (bei vielen Modi / schmalem Bildschirm)."""
         def go():
+            b = self.tab_btn.get(i)
+            if b is None:
+                return False
             adj = self.tab_scroll.get_hadjustment()
-            b = self.tabs[i]
-            x = sum(t.get_width() + 2 for t in self.tabs[:i])
+            x = sum(t.get_width() + 2 for t in self.tabs[:self.tabs.index(b)])
             if x < adj.get_value() or x + b.get_width() > adj.get_value() + adj.get_page_size():
                 adj.set_value(max(0, x - 40))
             return False
@@ -369,7 +483,7 @@ class Inquirist(Gtk.Application):
 
     @staticmethod
     def _foot(hint):
-        parts = [p for p in hint.split("   ") if p] + ["tab modus", "esc zu"]
+        parts = [p for p in hint.split("   ") if p] + ["tab modus", "a termin", "esc zu"]
         out = []
         for p in parts:
             k, _, rest = p.partition(" ")
@@ -414,7 +528,8 @@ class Inquirist(Gtk.Application):
             return
         prev = self.current().ident if keep and self.current() else None
         q = self.query()
-        rows = self.mode.rows(q)
+        pre = self.prefix_rows(q)
+        rows = pre[0] if pre else self.mode.rows(q)
         self.store.splice(0, self.store.get_n_items(), rows)
         pos = 0
         if prev is not None:
@@ -426,9 +541,9 @@ class Inquirist(Gtk.Application):
             self.sel.set_selected(pos)
             if pos == 0:
                 self.lv.scroll_to(0, Gtk.ListScrollFlags.NONE, None)
-        self.count.set_label(f"{len(rows)} / {self.mode.total()}")
-        self.empty.set_visible(not rows and not self.mode.busy(q))
-        m = self.mode.message(q)
+        self.count.set_label("" if pre else f"{len(rows)} / {self.mode.total()}")
+        self.empty.set_visible(not rows and not pre and not self.mode.busy(q))
+        m = pre[1] if pre else self.mode.message(q)
         if isinstance(m, dict):
             self.msg_crumbs(m["crumbs"], m["busy"])
         else:
@@ -448,7 +563,13 @@ class Inquirist(Gtk.Application):
         self.lv.scroll_to(i, Gtk.ListScrollFlags.NONE, None)
 
     def switch(self, d):
-        i = (self.modes.index(self.mode) + d) % len(self.modes)
+        ids = {m.id: i for i, m in enumerate(self.modes)}
+        order = [ids[m] for m in self.tab_order]
+        cur = self.modes.index(self.mode)
+        if cur in order:
+            i = order[(order.index(cur) + d) % len(order)]
+        else:                                  # versteckter Modus / Einstellungen: zum ersten bzw. letzten Reiter
+            i = order[0 if d > 0 else -1]
         self.set_mode(i, quiet=True)
 
     def _key(self, _c, kv, _code, state):
@@ -472,8 +593,9 @@ class Inquirist(Gtk.Application):
             self.move(-(LINES - 1))
         elif name in ("Tab", "ISO_Left_Tab"):
             self.switch(-1 if shift or name == "ISO_Left_Tab" else 1)
-        elif (ctrl or alt) and name in tuple("123456789"[:len(self.modes)]):
-            self.set_mode(int(name) - 1)
+        elif (ctrl or alt) and name in tuple("123456789"[:len(self.tab_order)]):
+            ids = {m.id: i for i, m in enumerate(self.modes)}
+            self.set_mode(ids[self.tab_order[int(name) - 1]])
         elif name in ("Return", "KP_Enter"):
             self.activate(self.sel.get_selected(), alt=ctrl)
         else:
@@ -482,6 +604,10 @@ class Inquirist(Gtk.Application):
 
     def activate(self, pos, alt=False):
         it = self.store.get_item(pos) if pos is not None and pos < self.store.get_n_items() else None
+        if it is not None and isinstance(it.data, dict) and it.data.get("addev"):
+            self.add_event(it.data["addev"], it.data["title"], it.data["when"])
+            self.hide()
+            return
         if it is None:
             if self.mode.id == "web" and self.query().strip():
                 P.detach("xdg-open", self.mode._target(self.query())[1])

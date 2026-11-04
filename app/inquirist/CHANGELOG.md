@@ -1,5 +1,10 @@
 # inquirist – Änderungen
 
+## 1.6.0 (2026-11-01)
+- **Einstellungen**: Der Zahnrad-Knopf rechts oben (oder `inquirist einstellungen`) zeigt alle Modi zum An-/Abhaken (Enter), mit Strg+↑/↓ verschieben, Alt+R stellt den Standard wieder her. Gespeichert in `~/.config/inquirist/config.json` (`tabs`). Versteckte Modi gehen weiter per `inquirist <modus>`.
+- **Standard-Leiste**: dateien, web, notizen und links sind nicht mehr in der Leiste; system steht ganz rechts.
+- **Präfix „a “ legt einen Termin an**, wie a in datist: `a grillen nächste woche mittwoch` zeigt eine Vorschau, Enter legt ihn an (ohne Uhrzeit ganztägig). Braucht datist (`datist --add "text"`).
+
 ## 1.5.0 (2026-11-01)
 - **Scroll-Ende**: Wer am Ende einer Seite weiterscrollt, sieht aus der Kante einen Verlauf aus ░ ▒ ▓ █ aufsteigen, am Mauszeiger am höchsten. Die Liste bewegt sich dabei nicht und der Effekt läuft ohne Überschwingen aus. Er erscheint nur, wenn kein umgebendes Scroll-Fenster mehr weiterscrollen kann. Abschalten: `"scroll_end": false` in ~/.config/rice-apps/settings.json oder Energiesparmodus.
 
